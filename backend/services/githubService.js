@@ -12,7 +12,6 @@ async function ensureRepoDir(repoPath) {
     await fs.mkdir(repoPath, { recursive: true });
 }
 
-async function startReviewProcess(payload, githubPat) {
     const { repository, commit_sha, changed_files, pull_request_number } = payload;
     const repoURL = `https://x-access-token:${githubPat}@github.com/${repository}.git`;
     
@@ -73,7 +72,70 @@ async function startReviewProcess(payload, githubPat) {
     const success = await postGitHubComment(repository, pull_request_number, reviewMarkdown, githubPat);
     
     return success;
+
+async function startReviewProcess(payload, githubPat) {
+    const { repository, commit_sha, changed_files, pull_request_number } = payload;
+    const repoURL = `https://x-access-token:${githubPat}@github.com/${repository}.git`;
+
+    const repoName = repository.split('/')[1];
+    const localRepoPath = path.join(REPOS_ROOT_DIR, repoName);
+
+    // --- Ensure REPOS_ROOT_DIR exists ---
+    try {
+        await fs.mkdir(REPOS_ROOT_DIR, { recursive: true });
+        console.log("Repo root OK:", REPOS_ROOT_DIR);
+    } catch (err) {
+        console.error("Failed to create repo root:", err);
+    }
+
+    // --- If repo folder exists, remove it (clean state) ---
+    try {
+        await fs.stat(localRepoPath);
+        console.log("Removing old repo folder:", localRepoPath);
+        await fs.rm(localRepoPath, { recursive: true, force: true });
+    } catch {
+        console.log("No previous repo clone found.");
+    }
+
+    // --- Clone repository (non-bare!) ---
+    console.log("Cloning repository:", repoURL);
+    await simpleGit().clone(repoURL, localRepoPath);
+    const git = simpleGit(localRepoPath);
+
+    // --- Checkout specific commit ---
+    console.log("Checking out commit:", commit_sha);
+    await git.checkout(commit_sha);
+
+    // --- DIFF ---
+    const filesToReview = [];
+    for (const file of changed_files) {
+        const filePath = file.filename;
+        const diff = await git.diff(['HEAD^', 'HEAD', '--', filePath]);
+        if (diff) {
+            filesToReview.push({ filename: filePath, diffContent: diff });
+        }
+    }
+
+    console.log(`Found ${filesToReview.length} changed files.`);
+
+    // --- LLM ---
+    const reviewMarkdown = await llmService.getAIReview(
+        filesToReview,
+        repository,
+        pull_request_number
+    );
+
+    // --- POST COMMENT ---
+    const success = await postGitHubComment(
+        repository,
+        pull_request_number,
+        reviewMarkdown,
+        githubPat
+    );
+
+    return success;
 }
+
 
 // --- GitHub Comment Posting Logic ---
 async function postGitHubComment(repoName, prNumber, content, githubToken) {
