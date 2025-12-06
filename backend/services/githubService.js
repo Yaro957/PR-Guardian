@@ -2,13 +2,12 @@
 
 const simpleGit = require('simple-git');
 const path = require('path');
-const fs = require('fs/promises'); 
+const fs = require('fs/promises');
 const llmService = require('./llmService');
 
-// Root folder where repositories will be cloned
 const REPOS_ROOT_DIR = process.env.REPOS_ROOT_DIR;
 
-// Ensure a directory exists
+// Ensure directory exists
 async function ensureDir(dirPath) {
     try {
         await fs.mkdir(dirPath, { recursive: true });
@@ -23,41 +22,41 @@ async function startReviewProcess(payload, githubPat) {
 
     const repoURL = `https://x-access-token:${githubPat}@github.com/${repository}.git`;
 
-    // Extract repo name e.g. "user/NetReaper" → "NetReaper"
+    // Example: "Yaro957/NetReaper" → "NetReaper"
     const repoName = repository.split('/')[1];
     const localRepoPath = path.join(REPOS_ROOT_DIR, repoName);
 
-    // --- Ensure REPOS_ROOT_DIR exists ---
+    // --- Ensure root directory exists ---
     await ensureDir(REPOS_ROOT_DIR);
 
-    // --- Remove old clone if it exists ---
+    // --- Remove old clone if exists ---
     try {
         await fs.stat(localRepoPath);
         console.log("Removing previous repo:", localRepoPath);
         await fs.rm(localRepoPath, { recursive: true, force: true });
     } catch {
-        console.log("No previous repo clone found, proceeding fresh.");
+        console.log("No previous repo clone found, fresh clone will be created.");
     }
 
-    // --- Clone repository (non-bare) ---
+    // --- Clone repository ---
     console.log("Cloning repository:", repoURL);
     await simpleGit().clone(repoURL, localRepoPath);
 
     const git = simpleGit(localRepoPath);
 
-    // --- Checkout specific commit ---
+    // --- Checkout correct commit ---
     console.log("Checking out commit:", commit_sha);
     await git.checkout(commit_sha);
 
-    // --- Collect diffs for changed files ---
+    // --- Generate diffs ---
     const filesToReview = [];
     for (const file of changed_files) {
         const filePath = file.filename;
 
-        // Compare commit with its parent
+        // Diff commit vs parent
         const diff = await git.diff(['HEAD^', 'HEAD', '--', filePath]);
 
-        if (diff && diff.trim() !== "") {
+        if (diff && diff.trim()) {
             filesToReview.push({
                 filename: filePath,
                 diffContent: diff
@@ -67,14 +66,14 @@ async function startReviewProcess(payload, githubPat) {
 
     console.log(`Found ${filesToReview.length} changed files.`);
 
-    // --- Generate AI Review ---
+    // --- Get structured AI review ---
     const reviewMarkdown = await llmService.getAIReview(
         filesToReview,
         repository,
         pull_request_number
     );
 
-    // --- Post Comment to GitHub ---
+    // --- Post comment on PR ---
     const success = await postGitHubComment(
         repository,
         pull_request_number,
@@ -85,7 +84,7 @@ async function startReviewProcess(payload, githubPat) {
     return success;
 }
 
-// --- Post comment on PR ---
+// --- Post comment to PR using Node-native fetch ---
 async function postGitHubComment(repoName, prNumber, content, githubToken) {
     const url = `https://api.github.com/repos/${repoName}/issues/${prNumber}/comments`;
 
@@ -95,19 +94,20 @@ async function postGitHubComment(repoName, prNumber, content, githubToken) {
         "User-Agent": "AI-Code-Review-Bot"
     };
 
-    const body = `## 🤖 Gemini AI Code Review\n\n---\n\n${content}`;
+    const body = {
+        body: `## 🤖 Gemini AI Code Review\n\n---\n\n${content}`
+    };
 
     try {
-        const fetch = require('node-fetch');
-
+        // Node 18+ built-in fetch (NO require!)
         const response = await fetch(url, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({ body })
+            method: "POST",
+            headers,
+            body: JSON.stringify(body)
         });
 
         if (response.status === 201) {
-            console.log("Successfully posted AI review comment.");
+            console.log("Successfully posted AI review comment to GitHub.");
             return true;
         } else {
             const errText = await response.text();
@@ -123,4 +123,3 @@ async function postGitHubComment(repoName, prNumber, content, githubToken) {
 module.exports = {
     startReviewProcess
 };
-// services/llmService.js
