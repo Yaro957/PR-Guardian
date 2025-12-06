@@ -1,0 +1,8 @@
+bug-bot.txt
+/backend/.env
+backend/.env
+/backend/.env
+backend/.env
+# This file is used to store environment variables for the backend service.
+# It should not be committed to version control as it contains sensitive information.
+# Gemini API Key (for calling the AI model)
