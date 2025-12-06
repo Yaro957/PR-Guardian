@@ -2,29 +2,25 @@
 name: AI Code Review Trigger
 
 on:
-  # Triggers when a Pull Request is opened, updated (synchronize), or reopened
   pull_request:
     types: [opened, synchronize, reopened]
 
 jobs:
   trigger_ai_review:
     runs-on: ubuntu-latest
-    
-    # Optional: Skip for specific users/branches if necessary
+
     if: github.actor != 'dependabot[bot]'
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          # Required to get the parent commit needed for diffing (HEAD^)
-          fetch-depth: 0 
+          fetch-depth: 0
 
       - name: Get All Changed Files in PR
         id: changed-files
         uses: tj-actions/changed-files@v44
         with:
-          # Optionally ignore files that the AI doesn't need to review
           files_ignore: |
             **.md
             .github/**
@@ -32,18 +28,15 @@ jobs:
 
       - name: Prepare JSON Payload for Backend
         id: prepare_payload
-        # Use jq to construct the complex JSON payload expected by your server.js
         run: |
           CHANGED_FILES_STRING="${{ steps.changed-files.outputs.all_changed_files }}"
           
-          # Convert newline string to a jq array of objects: [{"filename": "path/to/file1.js"}]
           if [ -z "$CHANGED_FILES_STRING" ]; then
             CHANGED_FILES_JSON="[]"
           else
             CHANGED_FILES_JSON=$(echo "$CHANGED_FILES_STRING" | jq -R . | jq -s . | jq 'map({filename: .})')
           fi
           
-          # Construct the full payload body
           PAYLOAD_BODY=$(jq -n \
             --arg repo "${{ github.repository }}" \
             --arg pr "${{ github.event.pull_request.number }}" \
@@ -53,21 +46,17 @@ jobs:
               repository: $repo,
               pull_request_number: ($pr | tonumber),
               commit_sha: $sha,
-              changed_files: $files 
+              changed_files: $files
             }')
           
           echo "PAYLOAD_BODY=$PAYLOAD_BODY" >> $GITHUB_OUTPUT
-          
+
       - name: Send Review Request to Node.js Backend
         run: |
-          # 🛑 UPDATE THIS LINE 🛑
-          # Replace <YOUR_SERVER_URL> with your actual deployed public URL (e.g., 'https://my-ai-reviewer.com')
-          SERVER_URL="http://<YOUR_SERVER_URL>:${{ env.BACKEND_PORT || 3000 }}/webhook"
-          
+          SERVER_URL="https://pr-guardian.onrender.com/webhook"
+
           echo "Sending request to: $SERVER_URL"
-          
+
           curl -X POST $SERVER_URL \
                -H 'Content-Type: application/json' \
                --data '${{ steps.prepare_payload.outputs.PAYLOAD_BODY }}'
-        env:
-          BACKEND_PORT: 3000 # Matches the port defined in your .env file
