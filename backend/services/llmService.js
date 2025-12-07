@@ -126,7 +126,7 @@ ${diffContext}
     console.log("Sending structured review request to Gemini...");
     try {
         const response = await ai.models.generateContent({
-            model: "gemini-2.5-pro", // Best model for complex reasoning and code
+            model: "gemini-1.5-flash-8b", // Best model for complex reasoning and code
             contents: [{ role: "user", parts: [{ text: userPrompt }] }],
             config: {
                 systemInstruction: systemInstruction,
